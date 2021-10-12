@@ -57,7 +57,7 @@ const UUID = {
 class Device extends EventEmitter {
 
 
-    constructor (peripheral) {
+    constructor(peripheral) {
         super();
 
         this.deviceType = "nuimo";
@@ -69,63 +69,62 @@ class Device extends EventEmitter {
     }
 
 
-    static get Direction () {
+    static get Direction() {
         return Direction;
     }
 
 
-    static get Swipe () {
+    static get Swipe() {
         return Swipe;
     }
 
 
-    static get Fly () {
+    static get Fly() {
         return Fly;
     }
 
 
-    static get Area () {
+    static get Area() {
         return Area;
     }
 
 
-    static get Options () {
+    static get Options() {
         return Options;
     }
 
 
-    get uuid () {
+    get uuid() {
         return this._peripheral.uuid;
     }
 
 
-    get UUID () {
+    get UUID() {
         return this.uuid;
     }
 
 
-    get batteryLevel () {
+    get batteryLevel() {
         return this._batteryLevel;
     }
 
 
-    get rssi () {
+    get rssi() {
         return this._rssi;
     }
 
 
-    get RSSI () {
+    get RSSI() {
         return this.rssi;
     }
 
 
-    connect (callback) {
+    connect(callback) {
 
         let self = this;
 
         let batteryReady = false;
         let LEDReady = false;
-        let userInputs = 0;
 
         this._peripheral.connect((err) => {
 
@@ -143,109 +142,85 @@ class Device extends EventEmitter {
             }, 2000);
 
             self._peripheral.on("disconnect", () => {
-               clearInterval(rssiUpdateInterval);
+                clearInterval(rssiUpdateInterval);
             });
 
             self._peripheral.discoverServices([], (error, services) => {
 
                 debug("Service discovery started");
 
-                let serviceIndex = 0;
-
-                async.whilst(
-                    function () {
-                        return (serviceIndex < services.length);
-                    },
-                    function (callback) {
-
-                        let service = services[serviceIndex];
-
+                async.each(services,
+                    async.timeout((service) => {
                         service.discoverCharacteristics([], (error, characteristics) => {
-
-                            let characteristicIndex = 0;
-
-                            async.whilst(
-                                function () {
-                                    return (characteristicIndex < characteristics.length);
-                                },
-                                function (callback) {
-
-                                    let characteristic = characteristics[characteristicIndex];
-
-                                    switch (service.uuid) {
-                                        case UUID.Service.BATTERY_STATUS:
-                                            batteryReady = true;
-                                            debug("Found Battery characteristic");
-                                            self._subscribeToCharacteristic(characteristic, self._handleBatteryChange.bind(self));
-                                            characteristic.read();
-                                            break;
-                                        case UUID.Service.LED_MATRIX:
-                                            self._LEDCharacteristic = characteristic;
-                                            LEDReady = true;
-                                            debug("Found LED characteristic");
-                                            break;
-                                        case UUID.Service.USER_INPUT_EVENTS:
-                                            switch (characteristic.uuid) {
-                                                case UUID.Characteristic.BUTTON_CLICK:
-                                                    debug("Found Button Click characteristic");
-                                                    self._subscribeToCharacteristic(characteristic, self._handleClick.bind(self));
-                                                    break;
-                                                case UUID.Characteristic.FLY:
-                                                    debug("Found Fly characteristic");
-                                                    self._subscribeToCharacteristic((characteristic), self._handleFlying.bind(self));
-                                                    break;
-                                                case UUID.Characteristic.ROTATION:
-                                                    debug("Found Rotation characteristic");
-                                                    self._subscribeToCharacteristic(characteristic, self._handleRotation.bind(self));
-                                                    break;
-                                                case UUID.Characteristic.SWIPE:
-                                                    debug("Found Swipe characteristic");
-                                                    self._subscribeToCharacteristic(characteristic, self._handleTouchSwipe.bind(self));
-                                                    break;
-                                            }
-                                            userInputs++;
-                                            break;
+                                async.each(characteristics
+                                    , async.timeout((characteristic) => {
+                                        switch (service.uuid) {
+                                            case UUID.Service.BATTERY_STATUS:
+                                                batteryReady = true;
+                                                debug("Found Battery characteristic");
+                                                self._subscribeToCharacteristic(characteristic, self._handleBatteryChange.bind(self));
+                                                characteristic.read();
+                                                debug("Read Battery");
+                                                break;
+                                            case UUID.Service.LED_MATRIX:
+                                                self._LEDCharacteristic = characteristic;
+                                                LEDReady = true;
+                                                debug("Found LED characteristic");
+                                                break;
+                                            case UUID.Service.USER_INPUT_EVENTS:
+                                                switch (characteristic.uuid) {
+                                                    case UUID.Characteristic.BUTTON_CLICK:
+                                                        debug("Found Button Click characteristic");
+                                                        self._subscribeToCharacteristic(characteristic, self._handleClick.bind(self));
+                                                        break;
+                                                    case UUID.Characteristic.FLY:
+                                                        debug("Found Fly characteristic");
+                                                        self._subscribeToCharacteristic((characteristic), self._handleFlying.bind(self));
+                                                        break;
+                                                    case UUID.Characteristic.ROTATION:
+                                                        debug("Found Rotation characteristic");
+                                                        self._subscribeToCharacteristic(characteristic, self._handleRotation.bind(self));
+                                                        break;
+                                                    case UUID.Characteristic.SWIPE:
+                                                        debug("Found Swipe characteristic");
+                                                        self._subscribeToCharacteristic(characteristic, self._handleTouchSwipe.bind(self));
+                                                        break;
+                                                }
+                                                break;
+                                        }
+                                    }, 1000)
+                                    , (err) => {
+                                        debug(err)
                                     }
-
-                                    characteristicIndex++;
-                                    return callback();
-
-                                },
-                                function (err) {
-                                    serviceIndex++;
-                                    return callback();
-                                }
-                            );
-                        });
-                    },
-                    function (err) {
-
+                                )
+                            }
+                        )
+                    }, 1000),
+                    (err) => {
                         debug("Service discovery finished");
 
-                        if (err !== null || batteryReady === false || LEDReady === false || userInputs < 5) {
+                        if (batteryReady === false || LEDReady === false) {
                             self._peripheral.disconnect();
-                            debug("Force disconnect");
+                            debug(`Force disconnect due to error: ${err} or battery: ${batteryReady} or LED: ${LEDReady}.`);
                         } else {
-                            debug("Emit connect");
                             self.emit("connect");
-                        }
-
-                        if (callback) {
-                            return callback();
+                            if (callback) {
+                                callback();
+                            }
                         }
                     }
-                );
+                )
             });
         });
     }
 
 
-    disconnect () {
+    disconnect() {
         this._peripheral.disconnect();
     }
 
 
-    setLEDMatrix (matrixData, brightness, timeout, options) {
+    setLEDMatrix(matrixData, brightness, timeout, options) {
 
         if (this._LEDCharacteristic) {
             let buf = Buffer.alloc(13);
@@ -262,7 +237,7 @@ class Device extends EventEmitter {
                 if (options.onion_skinning || options.onionSkinning) {
                     buf[10] += Options.ONION_SKINNING;
                 }
-                if (options.builtin_matrix || options.builtinMatrix){
+                if (options.builtin_matrix || options.builtinMatrix) {
                     buf[10] += Options.BUILTIN_MATRIX;
                 }
             }
@@ -276,17 +251,17 @@ class Device extends EventEmitter {
         }
     }
 
-    _LEDArrayToBuffer (arr) {
+    _LEDArrayToBuffer(arr) {
         let buf = Buffer.alloc(11);
 
         for (let i = 0; i < 11; i++) {
-            buf[i] = parseInt(arr.slice(i*8, i*8+8).reverse().join(""), 2);
+            buf[i] = parseInt(arr.slice(i * 8, i * 8 + 8).reverse().join(""), 2);
         }
 
         return buf;
     }
 
-    _subscribeToCharacteristic (characteristic, callback) {
+    _subscribeToCharacteristic(characteristic, callback) {
         characteristic.on("data", (data, isNotification) => {
             return callback(data);
         });
@@ -297,13 +272,13 @@ class Device extends EventEmitter {
         });
     }
 
-    _handleBatteryChange (data) {
+    _handleBatteryChange(data) {
         this._batteryLevel = data[0];
         debug("Battery level %s%", data[0]);
         this.emit("batteryLevelChange", data[0]);
     }
 
-    _handleTouchSwipe (data) {
+    _handleTouchSwipe(data) {
         let direction = data[0];
         if (direction <= 3) {
             this.emit("swipe", direction);
@@ -362,7 +337,7 @@ class Device extends EventEmitter {
         }
     }
 
-    _handleClick (data) {
+    _handleClick(data) {
         if (data[0] === 0) {
             debug("Button released");
             this.emit("release");
@@ -372,13 +347,13 @@ class Device extends EventEmitter {
         }
     }
 
-    _handleRotation (data) {
+    _handleRotation(data) {
         let amount = data.readInt16LE();
         debug("Rotate %s", amount);
         this.emit("rotate", amount);
     }
 
-    _handleFlying (data) {
+    _handleFlying(data) {
 
         let gesture = data[0],
             amount = data[1];
@@ -389,7 +364,8 @@ class Device extends EventEmitter {
             case 2:
                 let direction = gesture,
                     speed = amount;
-                this.emit("fly", direction, speed); break;
+                this.emit("fly", direction, speed);
+                break;
                 switch (direction) {
                     case (Fly.LEFT):
                         debug("Fly left %s", speed);
