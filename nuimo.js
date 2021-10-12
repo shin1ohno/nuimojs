@@ -1,5 +1,5 @@
 let fs = require("fs"),
-    noble = require("noble"),
+    noble = require("@abandonware/noble"),
     debug = require('debug')('nuimojs'),
     EventEmitter = require("events").EventEmitter;
 
